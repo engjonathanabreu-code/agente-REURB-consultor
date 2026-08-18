@@ -8,7 +8,7 @@ const quickQuestions = [
   "Explique REURB-S e REURB-E e suas diferenças práticas.",
   "Quais são as etapas para emissão e registro da CRF?",
   "Crie um modelo de requerimento de instauração de REURB.",
-  "Crie um checklist técnico para elaboração de um projeto de REURB."
+  "Crie um checklist técnico-jurídico para uma REURB."
 ];
 
 export default function Home() {
@@ -16,47 +16,91 @@ export default function Home() {
     {
       role: "assistant",
       text:
-        "Olá. Sou o Agente IA REURB. Consulto a base documental cadastrada para responder dúvidas sobre procedimentos, etapas e documentos, e posso elaborar modelos quando houver fundamento na base."
+        "Olá. Sou o Agente IA REURB. Consulto a base documental cadastrada para responder dúvidas sobre procedimentos, legislação, registro e documentos, e também posso elaborar modelos fundamentados na base."
     }
   ]);
+
   const [input, setInput] = useState("");
   const [previousResponseId, setPreviousResponseId] = useState(null);
   const [loading, setLoading] = useState(false);
 
   async function ask(value) {
     const message = String(value ?? input).trim();
+
     if (!message || loading) return;
 
-    setMessages((m) => [...m, { role: "user", text: message }]);
+    setMessages((current) => [
+      ...current,
+      {
+        role: "user",
+        text: message
+      }
+    ]);
+
     setInput("");
     setLoading(true);
 
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, previousResponseId })
+        headers: {
+          "Content-Type": "application/json"
+        },
+        cache: "no-store",
+        body: JSON.stringify({
+          message,
+          previousResponseId
+        })
       });
 
-      const data = await response.json();
+      const raw = await response.text();
 
-      if (!response.ok) {
-        throw new Error(data.error || "Erro na consulta.");
+      let data;
+
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        console.error("INVALID_API_RESPONSE", {
+          status: response.status,
+          contentType: response.headers.get("content-type"),
+          raw
+        });
+
+        throw new Error(
+          `O servidor retornou uma resposta inválida (${response.status}). ` +
+            `Resposta recebida: ${raw.slice(0, 700)}`
+        );
+      }
+
+      if (!response.ok || !data.ok) {
+        throw new Error(
+          data.error ||
+            `Erro HTTP ${response.status} ao consultar o agente.`
+        );
       }
 
       setPreviousResponseId(data.responseId || null);
-      setMessages((m) => [
-        ...m,
+
+      setMessages((current) => [
+        ...current,
         {
           role: "assistant",
           text: data.answer,
-          sources: data.sources || []
+          sources: Array.isArray(data.sources)
+            ? data.sources
+            : []
         }
       ]);
     } catch (error) {
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", text: `Erro: ${error.message}` }
+      console.error("CHAT_FRONTEND_ERROR", error);
+
+      setMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          text:
+            `Erro ao consultar o agente:\n\n${error.message}`
+        }
       ]);
     } finally {
       setLoading(false);
@@ -65,6 +109,7 @@ export default function Home() {
 
   function newConversation() {
     setPreviousResponseId(null);
+
     setMessages([
       {
         role: "assistant",
@@ -78,79 +123,120 @@ export default function Home() {
     <main>
       <header>
         <h1>Agente IA REURB</h1>
+
         <div className="small">
-          Procedimentos • Etapas • Base legal • Registro • Modelos de documentos
+          Procedimentos • Jurídico • Etapas • Registro • Modelos
         </div>
       </header>
 
       <div className="notice">
-        As respostas são produzidas a partir dos documentos cadastrados no Vector Store.
-        Normas locais podem complementar as regras nacionais.
+        As respostas são produzidas com consulta à base documental
+        cadastrada no Vector Store. Normas estaduais e municipais
+        podem complementar as regras nacionais.
       </div>
 
       <div className="grid">
-        {quickQuestions.map((q) => (
+        {quickQuestions.map((question) => (
           <button
             className="quick"
-            key={q}
+            key={question}
+            type="button"
             disabled={loading}
-            onClick={() => ask(q)}
+            onClick={() => ask(question)}
           >
-            {q}
+            {question}
           </button>
         ))}
       </div>
 
       <section className="card">
-        <div className="row" style={{ justifyContent: "space-between", marginBottom: 16 }}>
-          <strong>Consulta técnica</strong>
-          <button type="button" onClick={newConversation}>
+        <div
+          className="row"
+          style={{
+            justifyContent: "space-between",
+            marginBottom: 16
+          }}
+        >
+          <strong>Consulta técnica e jurídica</strong>
+
+          <button
+            type="button"
+            onClick={newConversation}
+            disabled={loading}
+          >
             Nova conversa
           </button>
         </div>
 
         <div className="chat">
-          {messages.map((m, index) => (
+          {messages.map((message, index) => (
             <div
-              className={`msg ${m.role === "user" ? "user" : "ai"}`}
               key={index}
+              className={`msg ${
+                message.role === "user"
+                  ? "user"
+                  : "ai"
+              }`}
             >
-              {m.text}
+              {message.text}
 
-              {m.sources?.length > 0 && (
+              {message.sources?.length > 0 && (
                 <div className="sources">
-                  <strong>Arquivos consultados:</strong>
+                  <strong>
+                    Arquivos utilizados:
+                  </strong>
+
                   <br />
-                  {m.sources.map((s, i) => (
-                    <span key={`${s.fileId}-${i}`}>
-                      {s.filename}
-                      {i < m.sources.length - 1 ? <br /> : null}
-                    </span>
-                  ))}
+
+                  {message.sources.map(
+                    (source, sourceIndex) => (
+                      <span
+                        key={`${
+                          source.fileId || "file"
+                        }-${sourceIndex}`}
+                      >
+                        {source.filename}
+
+                        {sourceIndex <
+                        message.sources.length - 1
+                          ? <br />
+                          : null}
+                      </span>
+                    )
+                  )}
                 </div>
               )}
             </div>
           ))}
 
           {loading && (
-            <div className="msg ai">Consultando a base documental…</div>
+            <div className="msg ai">
+              Consultando a base documental…
+            </div>
           )}
         </div>
 
         <form
           className="chat-form"
-          onSubmit={(e) => {
-            e.preventDefault();
+          onSubmit={(event) => {
+            event.preventDefault();
             ask();
           }}
         >
           <textarea
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ex.: O que precisa constar na CRF?"
+            onChange={(event) =>
+              setInput(event.target.value)
+            }
+            placeholder="Ex.: Quais requisitos devem constar na CRF?"
+            disabled={loading}
           />
-          <button disabled={loading} type="submit">
-            Enviar
+
+          <button
+            type="submit"
+            disabled={loading || !input.trim()}
+          >
+            {loading ? "Consultando…" : "Enviar"}
           </button>
         </form>
       </section>
