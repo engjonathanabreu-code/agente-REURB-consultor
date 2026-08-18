@@ -3,7 +3,7 @@ import { openaiClient } from "../../../lib/openai";
 import { SYSTEM_PROMPT } from "../../../lib/systemPrompt";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 function extractSources(response) {
   const sources = [];
@@ -29,6 +29,7 @@ function extractSources(response) {
 
           if (!seen.has(key)) {
             seen.add(key);
+
             sources.push({
               fileId,
               filename
@@ -61,6 +62,7 @@ export async function POST(request) {
     }
 
     const message = String(body?.message || "").trim();
+
     const previousResponseId =
       body?.previousResponseId &&
       typeof body.previousResponseId === "string"
@@ -87,59 +89,75 @@ export async function POST(request) {
       );
     }
 
-    const vectorStoreId = process.env.OPENAI_VECTOR_STORE_ID;
+    const vectorStoreId =
+      process.env.OPENAI_VECTOR_STORE_ID;
 
     if (!vectorStoreId) {
       return NextResponse.json(
         {
           ok: false,
-          error: "OPENAI_VECTOR_STORE_ID não configurado na Vercel."
+          error:
+            "OPENAI_VECTOR_STORE_ID não configurado na Vercel."
         },
         { status: 500 }
       );
     }
 
-    const model = process.env.OPENAI_MODEL || "gpt-5";
+    const model =
+      process.env.OPENAI_MODEL || "gpt-5";
 
     const openai = openaiClient();
 
     const payload = {
       model,
+
       instructions: SYSTEM_PROMPT,
+
       input: message,
+
       tools: [
         {
           type: "file_search",
-          vector_store_ids: [vectorStoreId],
-          max_num_results: 15
+
+          vector_store_ids: [
+            vectorStoreId
+          ],
+
+          max_num_results: 8
         }
       ],
+
       tool_choice: "auto"
     };
 
     if (previousResponseId) {
-      payload.previous_response_id = previousResponseId;
+      payload.previous_response_id =
+        previousResponseId;
     }
 
     console.log("REURB_REQUEST", {
       model,
       vectorStoreId,
-      hasPreviousResponse: Boolean(previousResponseId),
+      hasPreviousResponse:
+        Boolean(previousResponseId),
       messageLength: message.length
     });
 
-    const response = await openai.responses.create(payload);
+    const response =
+      await openai.responses.create(payload);
 
     console.log("REURB_RESPONSE_OK", {
       responseId: response.id,
-      outputItems: response.output?.length || 0
+      outputItems:
+        response.output?.length || 0
     });
 
     const answer =
       response.output_text?.trim() ||
       "A OpenAI respondeu, mas não retornou conteúdo textual.";
 
-    const sources = extractSources(response);
+    const sources =
+      extractSources(response);
 
     return NextResponse.json(
       {
@@ -165,14 +183,15 @@ export async function POST(request) {
       stack: error?.stack
     });
 
-    let message = "Erro interno ao consultar o agente.";
+    let message =
+      "Erro interno ao consultar o agente.";
 
     if (error?.status === 401) {
       message =
         "A OpenAI recusou a API Key. Confira OPENAI_API_KEY na Vercel.";
     } else if (error?.status === 404) {
       message =
-        "A OpenAI não encontrou o modelo ou Vector Store configurado. Confira OPENAI_MODEL e OPENAI_VECTOR_STORE_ID.";
+        "A OpenAI não encontrou o modelo ou o Vector Store configurado. Confira OPENAI_MODEL e OPENAI_VECTOR_STORE_ID.";
     } else if (error?.status === 429) {
       message =
         "A OpenAI recusou temporariamente a consulta por limite de uso ou créditos. Confira Billing e Limits na OpenAI.";
@@ -186,7 +205,9 @@ export async function POST(request) {
         error: message
       },
       {
-        status: error?.status || 500,
+        status:
+          error?.status || 500,
+
         headers: {
           "Cache-Control": "no-store"
         }
